@@ -12,7 +12,7 @@ from utils.utils import clip_gradient, AvgMeter, poly_lr
 import torch.nn.functional as F
 import numpy as np
 
-file = open("log/BGNet_Enhanced.txt", "a")
+file = open("log/BGNet_Enhanced_Improved.txt", "a")
 torch.manual_seed(2021)
 torch.cuda.manual_seed(2021)
 np.random.seed(2021)
@@ -71,14 +71,28 @@ def train(train_loader, model, optimizer, epoch, enhancement_criterion):
         loss1 = structure_loss(lateral_map_1, gts)
         losse = dice_loss(edge_map, edges)
 
-        # Enhancement loss (可选)
+        # ===== 关键修改：动态调整Enhancement Loss =====
         if opt.use_enhancement and enhanced_img is not None:
             # Denormalize original image
             mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(images.device)
             std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(images.device)
             original_img = images * std + mean
 
+            # 计算增强损失
             loss_enhance = enhancement_criterion(enhanced_img, original_img)
+            
+            # ===== 关键：根据训练阶段动态调整权重 =====
+            # 前10个epoch：不使用enhancement loss，让检测网络先学习
+            # 10-20 epoch：逐渐增加enhancement loss
+            # 20+ epoch：使用完整的enhancement loss
+            if epoch < 10:
+                enhance_weight = 0.0
+            elif epoch < 20:
+                enhance_weight = (epoch - 10) / 10.0 * opt.enhancement_loss_weight
+            else:
+                enhance_weight = opt.enhancement_loss_weight
+            
+            loss_enhance = enhance_weight * loss_enhance
         else:
             loss_enhance = torch.tensor(0.0).cuda()
 
@@ -101,10 +115,11 @@ def train(train_loader, model, optimizer, epoch, enhancement_criterion):
         if i % 60 == 0 or i == total_step:
             log_msg = ('{} Epoch [{:03d}/{:03d}], Step [{:04d}/{:04d}], '
                        '[lateral-3: {:.4f}], [lateral-2: {:.4f}], [lateral-1: {:.4f}], '
-                       '[edge: {:.4f}], [enhance: {:.4f}]'.format(
+                       '[edge: {:.4f}], [enhance: {:.4f}] (weight: {:.3f})'.format(
                 datetime.now(), epoch, opt.epoch, i, total_step,
                 loss_record3.avg, loss_record2.avg, loss_record1.avg,
-                loss_recorde.avg, loss_record_enhance.avg))
+                loss_recorde.avg, loss_record_enhance.avg, 
+                enhance_weight if opt.use_enhancement else 0.0))
             print(log_msg)
             file.write(log_msg + '\n')
 
@@ -125,19 +140,28 @@ if __name__ == '__main__':
     parser.add_argument('--trainsize', type=int, default=416, help='training dataset size')
     parser.add_argument('--clip', type=float, default=0.5, help='gradient clipping margin')
     parser.add_argument('--train_path', type=str,
-                        default='./data/TrainDataset', help='path to train dataset')
-    parser.add_argument('--train_save', type=str, default='BGNet_Enhanced')
+                        default='/data1/zhy/lowlight-CODdatasets/TrainDataset', help='path to train dataset')
+    parser.add_argument('--train_save', type=str, default='BGNet_Enhanced-v4')
     parser.add_argument('--use_enhancement', type=bool, default=True,
                         help='whether to use enhancement module')
-    parser.add_argument('--enhancement_loss_weight', type=float, default=0.1,
-                        help='weight for enhancement reconstruction loss')
+    parser.add_argument('--enhancement_loss_weight', type=float, default=0.02,
+                        help='weight for enhancement loss (REDUCED from 0.1)')
     opt = parser.parse_args()
+
+    print("="*80)
+    print("Training Configuration:")
+    print(f"  Enhancement Loss Weight: {opt.enhancement_loss_weight}")
+    print(f"  Strategy: Warm-up for first 10 epochs, then gradually increase")
+    print("="*80)
 
     # Build model
     model = Net_Enhanced(use_enhancement=opt.use_enhancement).cuda()
 
-    # Enhancement loss
-    enhancement_criterion = EnhancementLoss(weight=opt.enhancement_loss_weight)
+    # Enhancement loss - 使用改进的损失函数
+    enhancement_criterion = EnhancementLoss(
+        weight=1.0,  # 这里设为1.0，实际权重由训练循环中的动态调整控制
+        use_perceptual=True
+    )
 
     params = model.parameters()
     optimizer = torch.optim.Adam(params, opt.lr)
@@ -150,11 +174,13 @@ if __name__ == '__main__':
                               batchsize=opt.batchsize, trainsize=opt.trainsize)
     total_step = len(train_loader)
 
-    print("Start Training with Enhancement Module")
+    print("\nStart Training with Improved Enhancement Strategy")
     print(f"Use Enhancement: {opt.use_enhancement}")
+    print(f"Total Steps per Epoch: {total_step}")
 
     for epoch in range(opt.epoch):
         poly_lr(optimizer, opt.lr, epoch, opt.epoch)
         train(train_loader, model, optimizer, epoch, enhancement_criterion)
 
     file.close()
+    print("\n✅ Training completed successfully!")
