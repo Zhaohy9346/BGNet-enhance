@@ -15,7 +15,7 @@ from utils.metrics import Fmeasure, MAE, Smeasure, Emeasure
 parser = argparse.ArgumentParser()
 parser.add_argument('--testsize', type=int, default=416, help='testing size')
 parser.add_argument('--pth_path', type=str,
-                    default='/data1/zhy/BGNet-master/checkpoints/BGNet_Enhanced/BGNet_Enhanced-99.pth')
+                    default='/data1/zhy/BGNet-master/checkpoints/BGNet_Enhanced-v4/BGNet_Enhanced-24.pth')
 parser.add_argument('--use_enhancement', type=bool, default=True,
                     help='whether to use enhancement module')
 parser.add_argument('--save_results', type=bool, default=True,
@@ -33,7 +33,7 @@ for _data_name in ['CAMO', 'CHAMELEON', 'COD10K', 'NC4K']:
     print(f"{'='*60}")
     
     data_path = '/data1/zhy/lowlight-CODdatasets/TestDataset/{}'.format(_data_name)
-    save_path = './results/BGNet_Enhanced/{}/'.format(_data_name)
+    save_path = './results/BGNet_Enhanced-v4/{}/'.format(_data_name)
 
     # 加载模型
     model = Net_Enhanced(use_enhancement=opt.use_enhancement)
@@ -142,9 +142,9 @@ print(f"\n{'='*60}")
 print("Saving results to file...")
 print(f"{'='*60}")
 
-results_file = open("test_results_BGNet_Enhanced.txt", "w")
+results_file = open("test_results_BGNet_Enhanced-v4.txt", "w")
 results_file.write("="*80 + "\n")
-results_file.write(f"BGNet_Enhanced Test Results (use_enhancement={opt.use_enhancement})\n")
+results_file.write(f"BGNet_Enhanced Test Results (use_enhancement={opt.use_enhancement})新损失函数\n")
 results_file.write("="*80 + "\n\n")
 
 for dataset_name, results in all_results.items():
